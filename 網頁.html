@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>反應力測試</title>
+    <style>
+        /* CSS 樣式設定 */
+        body {
+            font-family: 'Inter', sans-serif;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            background-color: #f0f4f8; /* 初始中性背景色 */
+            color: #334155;
+            text-align: center;
+            cursor: pointer; /* 顯示可點擊的滑鼠游標 */
+            transition: background-color 0.5s ease-in-out; /* 平滑過渡效果 */
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        h1 {
+            color: #1e293b;
+            margin-bottom: 20px;
+        }
+
+        #instruction {
+            font-size: 1.25rem;
+            margin-bottom: 20px;
+            color: #475569;
+        }
+
+        #reactionTime {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #0d9488;
+            height: 40px; /* 預留空間以避免版面跳動 */
+        }
+
+        #roundCounter {
+            font-size: 1rem;
+            font-weight: 500;
+            color: #64748b;
+            margin-bottom: 10px;
+        }
+
+        /* 遊戲狀態的背景色 */
+        body.waiting {
+            background-color: #ef4444; /* 紅色，表示等待 */
+            color: #fff;
+        }
+
+        body.ready {
+            background-color: #22c55e; /* 綠色，表示可以點擊 */
+            color: #fff;
+        }
+
+        #summaryContainer {
+            margin-top: 40px;
+            width: 100%;
+            max-width: 400px;
+            background-color: #fff;
+            border-radius: 1rem;
+            padding: 20px;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+
+        #summaryContainer h2 {
+            margin-top: 0;
+            color: #1e293b;
+        }
+
+        #summaryTable {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+
+        #summaryTable th, #summaryTable td {
+            border: 1px solid #e2e8f0;
+            padding: 10px;
+        }
+        
+        #summaryTable th {
+            background-color: #f8fafc;
+            color: #475569;
+            text-align: center;
+        }
+
+        #summaryTable td {
+            text-align: center;
+        }
+
+        #averageTime {
+            margin-top: 20px;
+            font-size: 1.25rem;
+            font-weight: bold;
+            color: #0d9488;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>反應力測試</h1>
+
+    <p id="instruction">點擊畫面任意處開始遊戲</p>
+
+    <div id="roundCounter"></div>
+
+    <div id="reactionTime"></div>
+
+    <div id="summaryContainer" style="display: none;">
+        <h2>測試結果</h2>
+        <table id="summaryTable">
+            <thead>
+                <tr>
+                    <th>輪次</th>
+                    <th>反應時間 (ms)</th>
+                </tr>
+            </thead>
+            <tbody>
+                <!-- 測試結果會在此處動態生成 -->
+            </tbody>
+        </table>
+        <div id="averageTime"></div>
+    </div>
+
+
+    <script>
+        // JavaScript 遊戲邏輯
+        document.addEventListener('DOMContentLoaded', () => {
+            const body = document.body;
+            const instruction = document.getElementById('instruction');
+            const reactionTimeDisplay = document.getElementById('reactionTime');
+            const roundCounter = document.getElementById('roundCounter');
+            const summaryContainer = document.getElementById('summaryContainer');
+            const summaryTableBody = document.querySelector('#summaryTable tbody');
+            const averageTimeDisplay = document.getElementById('averageTime');
+            
+            let startTime, timeoutId;
+            let gameState = 'IDLE'; // 新增遊戲狀態變數: 'IDLE', 'WAITING', 'READY', 'GAMEOVER'
+            let roundCount = 0;
+            const totalRounds = 5;
+            let reactionTimes = [];
+            let audioCtx = null;
+
+            // 播放聲音提示
+            const playBeep = () => {
+                // 如果瀏覽器不支持 AudioContext，則不執行
+                if (!window.AudioContext) return;
+                
+                // 延遲初始化 AudioContext 以避免瀏覽器自動播放限制
+                if (!audioCtx) {
+                    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                }
+
+                const oscillator = audioCtx.createOscillator();
+                const gainNode = audioCtx.createGain();
+
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(440, audioCtx.currentTime); // A4 音
+                gainNode.gain.setValueAtTime(0.5, audioCtx.currentTime);
+                
+                // 連接音頻節點
+                oscillator.connect(gainNode);
+                gainNode.connect(audioCtx.destination);
+                
+                // 啟動和停止振盪器以發出短促的聲音
+                oscillator.start();
+                gainNode.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + 0.15); // 快速淡出
+                oscillator.stop(audioCtx.currentTime + 0.15);
+            };
+
+            // 更新總表
+            const updateSummaryTable = () => {
+                summaryTableBody.innerHTML = '';
+                
+                reactionTimes.forEach((time, index) => {
+                    const row = summaryTableBody.insertRow();
+                    const roundCell = row.insertCell(0);
+                    const timeCell = row.insertCell(1);
+                    roundCell.textContent = `第 ${index + 1} 輪`;
+                    timeCell.textContent = `${time} ms`;
+                });
+
+                const totalTime = reactionTimes.reduce((sum, time) => sum + time, 0);
+                const averageTime = Math.round(totalTime / reactionTimes.length);
+                averageTimeDisplay.textContent = `平均反應時間：${averageTime} 毫秒`;
+
+                summaryContainer.style.display = 'block';
+            };
+
+            // 處理頁面點擊事件
+            body.addEventListener('click', () => {
+                switch (gameState) {
+                    case 'IDLE':
+                    case 'GAMEOVER':
+                        if (gameState === 'GAMEOVER') {
+                            // 遊戲結束後重設所有狀態
+                            body.classList.remove('ready', 'waiting');
+                            body.style.backgroundColor = '';
+                            reactionTimes = [];
+                            roundCount = 0;
+                            summaryContainer.style.display = 'none';
+                        }
+                        
+                        // 開始新的回合
+                        roundCount++;
+                        gameState = 'WAITING';
+                        instruction.textContent = "請準備...當畫面變綠色時，點擊它！";
+                        reactionTimeDisplay.textContent = "";
+                        roundCounter.textContent = `第 ${roundCount} 輪 / 共 ${totalRounds} 輪`;
+                        body.classList.add('waiting');
+
+                        const delay = Math.random() * 3000 + 1000;
+                        timeoutId = setTimeout(() => {
+                            if (gameState === 'WAITING') {
+                                body.classList.remove('waiting');
+                                body.classList.add('ready');
+                                gameState = 'READY';
+                                startTime = new Date().getTime();
+                                playBeep();
+                            }
+                        }, delay);
+                        break;
+                    
+                    case 'WAITING':
+                        // 點擊太快
+                        clearTimeout(timeoutId);
+                        body.classList.remove('waiting');
+                        body.style.backgroundColor = '';
+                        reactionTimeDisplay.textContent = "你點擊太快了！";
+                        instruction.textContent = "點擊畫面任意處以重新開始。";
+                        gameState = 'IDLE'; // 回到 IDLE 狀態，準備重新開始此輪
+                        break;
+                    
+                    case 'READY':
+                        // 成功點擊
+                        const endTime = new Date().getTime();
+                        const reactionTime = endTime - startTime;
+                        reactionTimes.push(reactionTime);
+                        reactionTimeDisplay.textContent = `你的反應時間是：${reactionTime} 毫秒`;
+                        body.classList.remove('ready');
+                        body.style.backgroundColor = '';
+                        
+                        if (roundCount < totalRounds) {
+                            instruction.textContent = "點擊畫面任意處以開始下一輪。";
+                            gameState = 'IDLE';
+                        } else {
+                            instruction.textContent = `恭喜你完成 ${totalRounds} 輪測試！`;
+                            updateSummaryTable();
+                            gameState = 'GAMEOVER';
+                        }
+                        break;
+                }
+            });
+
+            // 初始狀態
+            instruction.textContent = "點擊畫面任意處開始遊戲";
+            roundCounter.textContent = "";
+            reactionTimeDisplay.textContent = "";
+        });
+    </script>
+</body>
+</html>
